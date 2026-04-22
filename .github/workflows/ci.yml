@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  compiler: gcc,   cc: gcc-14, cxx: g++-14 }
+          - { os: ubuntu-latest,  compiler: clang, cc: clang,  cxx: clang++ }
+          - { os: macos-latest,   compiler: gcc,   cc: gcc-14, cxx: g++-14 }
+          - { os: macos-latest,   compiler: clang, cc: clang,  cxx: clang++ }
+          - { os: windows-latest, compiler: gcc,   cc: gcc,    cxx: g++ }
+          - { os: windows-latest, compiler: clang, cc: clang,  cxx: clang++ }
+          - { os: windows-latest, compiler: msvc }
+
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install gcc-14 (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.compiler == 'gcc'
+        run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14
+
+      - name: Install gcc-14 (macOS)
+        if: matrix.os == 'macos-latest' && matrix.compiler == 'gcc'
+        run: brew install gcc@14
+
+      - name: Install MinGW (Windows)
+        if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
+        run: choco install mingw -y --no-progress
+
+      - name: Install LLVM (Windows)
+        if: matrix.os == 'windows-latest' && matrix.compiler == 'clang'
+        run: |
+          choco install llvm -y --no-progress
+          echo "C:\Program Files\LLVM\bin" >> "$GITHUB_PATH"
+
+      # Prevent Bazel's MSVC autodetection from pre-empting the user's choice.
+      - name: Disable MSVC autodetection (Windows, non-MSVC jobs)
+        if: matrix.os == 'windows-latest' && matrix.compiler != 'msvc'
+        run: echo "BAZEL_VC=" >> "$GITHUB_ENV"
+
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}-${{ matrix.os }}-${{ matrix.compiler }}
+          repository-cache: true
+
+      - run: bazel test --config=ci --config=${{ matrix.compiler }} //...

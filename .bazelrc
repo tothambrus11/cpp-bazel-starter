@@ -1,61 +1,39 @@
 # =============================================================================
 # Multi-compiler configuration.
 #
-# Select a toolchain by passing one of:
-#   --config=gcc    Hermetic GCC       (Linux)
-#   --config=clang  Hermetic LLVM/Clang (Linux + macOS)
-#   --config=msvc   Autodetected MSVC   (Windows)
-#
-# Without any --config, Bazel uses the autodetected host toolchain.
+# Pick a compiler by exporting CC/CXX (e.g. CC=gcc-14, CXX=g++-14) and passing
+# one of:
+#     --config=gcc     GCC
+#     --config=clang   Clang
+#     --config=msvc    MSVC (Windows)
 # =============================================================================
 
-# Use C++ toolchain resolution (platforms-based; default in Bazel 7+).
-build --incompatible_enable_cc_toolchain_resolution
+build --cxxopt=-std=c++23 --host_cxxopt=-std=c++23
+
+# Pick up CC/CXX changes without requiring a clean.
+build --repo_env=CC --repo_env=CXX
 
 # -----------------------------------------------------------------------------
-# Shared flags for GCC / Clang (GNU-style command line).
-# Referenced by both `gcc` and `clang` configs below.
-#
-# Strict warnings are applied via --per_file_copt so they ONLY affect
-# first-party sources, never external deps (catch2, etc). The regex
-# `.*,-external/.*` means "all files except those under external/".
+# Strict warnings are scoped to first-party sources (under main/) via
+# --per_file_copt so external deps (e.g. catch2) are unaffected. Bazel uses
+# RE2 here, which has no lookahead -- so we use a positive match rather than
+# excluding external/. Extend the regex if you add new top-level source dirs.
 # -----------------------------------------------------------------------------
-build:_gnu --cxxopt=-std=c++23
-build:_gnu --host_cxxopt=-std=c++23
 
-build:_gnu --per_file_copt=^(?!external/).*@-Wall,-Wextra,-Wpedantic,-Wshadow,-Wconversion,-Wsign-conversion,-Wcast-align,-Wdouble-promotion,-Wformat=2,-Wimplicit-fallthrough,-Wunused,-Wnon-virtual-dtor,-Wold-style-cast,-Woverloaded-virtual,-Werror
+# Warnings understood by both GCC and Clang.
+build:_warn_gnu --per_file_copt=^main/.*@-Wall,-Wextra,-Wpedantic,-Wshadow,-Wconversion,-Wsign-conversion,-Wcast-align,-Wdouble-promotion,-Wformat=2,-Wimplicit-fallthrough,-Wunused,-Wnon-virtual-dtor,-Wold-style-cast,-Woverloaded-virtual,-Werror
 
-# -----------------------------------------------------------------------------
-# GCC (hermetic, Linux only).
-# -----------------------------------------------------------------------------
-build:gcc --config=_gnu
-build:gcc --extra_toolchains=@gcc_toolchain_x86_64//:cc_toolchain
-build:gcc --extra_toolchains=@gcc_toolchain_aarch64//:cc_toolchain
-# GCC-specific extra warnings.
-build:gcc --per_file_copt=.*,-external/.*@-Wduplicated-cond,-Wduplicated-branches,-Wlogical-op,-Wnull-dereference,-Wuseless-cast
+build:gcc --config=_warn_gnu
+build:gcc --per_file_copt=^main/.*@-Wduplicated-cond,-Wduplicated-branches,-Wlogical-op,-Wnull-dereference,-Wuseless-cast
+
+build:clang --config=_warn_gnu
+build:clang --per_file_copt=^main/.*@-Wthread-safety,-Wshadow-all
+
+build:msvc --cxxopt=/std:c++latest --host_cxxopt=/std:c++latest
+build:msvc --per_file_copt=^main/.*@/W4,/permissive-,/WX,/w14242,/w14254,/w14263,/w14265,/w14287,/w14296,/w14311,/w14545,/w14546,/w14547,/w14549,/w14555,/w14619,/w14640,/w14826,/w14905,/w14906,/w14928
 
 # -----------------------------------------------------------------------------
-# Clang / LLVM (hermetic, Linux + macOS).
+# CI convenience.
 # -----------------------------------------------------------------------------
-build:clang --config=_gnu
-build:clang --extra_toolchains=@llvm_toolchain//:all
-# Clang-specific extra warnings.
-build:clang --per_file_copt=.*,-external/.*@-Wthread-safety,-Wshadow-all
-
-# -----------------------------------------------------------------------------
-# MSVC (autodetected, Windows only; not hermetic).
-# -----------------------------------------------------------------------------
-build:msvc --cxxopt=/std:c++latest
-build:msvc --host_cxxopt=/std:c++latest
-build:msvc --per_file_copt=.*,-external/.*@/W4,/permissive-,/WX
-# A handful of useful extra MSVC warnings (off by default even at /W4).
-# See https://learn.microsoft.com/cpp/error-messages/compiler-warnings
-# /w14xxx => enable warning xxx at level 4.
-build:msvc --per_file_copt=.*,-external/.*@/w14242,/w14254,/w14263,/w14265,/w14287,/w14296,/w14311,/w14545,/w14546,/w14547,/w14549,/w14555,/w14619,/w14640,/w14826,/w14905,/w14906,/w14928
-
-# =============================================================================
-# CI convenience: disable coloured output and show test errors.
-# =============================================================================
 build:ci --color=yes
-test:ci --test_output=errors
-test:ci --test_summary=terse
+test:ci --test_output=errors --test_summary=terse
