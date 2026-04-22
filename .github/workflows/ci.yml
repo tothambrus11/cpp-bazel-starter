@@ -25,8 +25,16 @@ jobs:
           # that Homebrew GCC rejects. Using GCC on macOS needs a custom
           # cc_toolchain, which isn't worth the complexity here.
           - { os: macos-latest,   compiler: clang, cc: clang,  cxx: clang++ }
-          # Windows/gcc: MinGW-w64 via msys2. See the setup step below.
-          - { os: windows-latest, compiler: gcc,   cc: gcc,    cxx: g++ }
+          # Windows/gcc: MinGW-w64 via msys2. Requires a custom exec platform +
+          # --extra_toolchains so platform-based toolchain resolution picks
+          # mingw-gcc instead of the default MSVC toolchain. See setup below.
+          - os: windows-latest
+            compiler: gcc
+            cc: gcc
+            cxx: g++
+            bazel_flags: >-
+              --extra_execution_platforms=//platforms:x64_windows_mingw
+              --extra_toolchains=@local_config_cc//:cc-toolchain-x64_windows_mingw
           # Windows/clang is intentionally omitted: Bazel's Windows cc-autoconf
           # only offers `clang-cl` (MSVC driver, MSVC flags), which overlaps
           # with --config=msvc. A GNU-driver clang would need a custom toolchain.
@@ -57,13 +65,11 @@ jobs:
           path-type: inherit
           update: false
 
-      - name: Configure Bazel to use MinGW (Windows)
+      # BAZEL_SH points rules_cc's windows_cc_configure at msys2's MinGW install
+      # when it generates the @local_config_cc repo.
+      - name: Point Bazel at msys2 bash (Windows)
         if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
-        run: |
-          {
-            echo "BAZEL_COMPILER=mingw-gcc"
-            echo "BAZEL_SH=${{ steps.msys2.outputs.msys2-location }}\\usr\\bin\\bash.exe"
-          } >> "$GITHUB_ENV"
+        run: echo "BAZEL_SH=${{ steps.msys2.outputs.msys2-location }}\\usr\\bin\\bash.exe" >> "$GITHUB_ENV"
 
       - uses: bazel-contrib/setup-bazel@0.14.0
         with:
@@ -71,4 +77,4 @@ jobs:
           disk-cache: ${{ github.workflow }}-${{ matrix.os }}-${{ matrix.compiler }}
           repository-cache: true
 
-      - run: bazel test --config=ci --config=${{ matrix.compiler }} //...
+      - run: bazel test --config=ci --config=${{ matrix.compiler }} ${{ matrix.bazel_flags }} //...
