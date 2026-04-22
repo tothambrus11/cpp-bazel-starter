@@ -25,8 +25,11 @@ jobs:
           # that Homebrew GCC rejects. Using GCC on macOS needs a custom
           # cc_toolchain, which isn't worth the complexity here.
           - { os: macos-latest,   compiler: clang, cc: clang,  cxx: clang++ }
+          # Windows/gcc: MinGW-w64 via msys2. See the setup step below.
           - { os: windows-latest, compiler: gcc,   cc: gcc,    cxx: g++ }
-          - { os: windows-latest, compiler: clang, cc: clang,  cxx: clang++ }
+          # Windows/clang is intentionally omitted: Bazel's Windows cc-autoconf
+          # only offers `clang-cl` (MSVC driver, MSVC flags), which overlaps
+          # with --config=msvc. A GNU-driver clang would need a custom toolchain.
           - { os: windows-latest, compiler: msvc }
 
     env:
@@ -40,22 +43,27 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.compiler == 'gcc'
         run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14
 
-      - name: Install MinGW (Windows)
+      # Windows + gcc: install MinGW-w64 via msys2, then tell Bazel to use
+      # its mingw-gcc toolchain (one of the four toolchains registered by
+      # rules_cc's windows_cc_configure, alongside msvc-cl, clang-cl and
+      # msys-gcc). Bazel locates MinGW by walking up from $BAZEL_SH.
+      - name: Set up MinGW-w64 (Windows)
+        id: msys2
         if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
-        run: choco install mingw -y --no-progress
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: mingw-w64-x86_64-gcc
+          path-type: inherit
+          update: false
 
-      - name: Install LLVM (Windows)
-        if: matrix.os == 'windows-latest' && matrix.compiler == 'clang'
+      - name: Configure Bazel to use MinGW (Windows)
+        if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
         run: |
-          choco install llvm -y --no-progress
-          echo "C:\Program Files\LLVM\bin" >> "$GITHUB_PATH"
-
-      # Force Unix-style toolchain autodetection (gcc/clang on PATH) instead
-      # of MSVC. Note: setting BAZEL_VC="" crashes rules_cc's windows
-      # configurator (it indexes value[0] without a length check).
-      - name: Use Unix-style toolchain autodetection (Windows, non-MSVC jobs)
-        if: matrix.os == 'windows-latest' && matrix.compiler != 'msvc'
-        run: echo "BAZEL_USE_CPP_ONLY_TOOLCHAIN=1" >> "$GITHUB_ENV"
+          {
+            echo "BAZEL_COMPILER=mingw-gcc"
+            echo "BAZEL_SH=${{ steps.msys2.outputs.msys2-location }}\\usr\\bin\\bash.exe"
+          } >> "$GITHUB_ENV"
 
       - uses: bazel-contrib/setup-bazel@0.14.0
         with:
