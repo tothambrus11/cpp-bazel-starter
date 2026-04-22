@@ -20,25 +20,13 @@ jobs:
         include:
           - { os: ubuntu-latest,  compiler: gcc,   cc: gcc-14, cxx: g++-14 }
           - { os: ubuntu-latest,  compiler: clang, cc: clang,  cxx: clang++ }
-          # macOS/gcc is intentionally omitted: Bazel's autodetected darwin
-          # cc toolchain passes clang-only link flags (e.g. -fobjc-link-runtime)
-          # that Homebrew GCC rejects. Using GCC on macOS needs a custom
-          # cc_toolchain, which isn't worth the complexity here.
           - { os: macos-latest,   compiler: clang, cc: clang,  cxx: clang++ }
-          # Windows/gcc: MinGW-w64 via msys2. Requires a custom exec platform +
-          # --extra_toolchains so platform-based toolchain resolution picks
-          # mingw-gcc instead of the default MSVC toolchain. See setup below.
-          - os: windows-latest
-            compiler: gcc
-            cc: gcc
-            cxx: g++
-            bazel_flags: >-
-              --extra_execution_platforms=//platforms:x64_windows_mingw
-              --extra_toolchains=@local_config_cc//:cc-toolchain-x64_windows_mingw
-          # Windows/clang is intentionally omitted: Bazel's Windows cc-autoconf
-          # only offers `clang-cl` (MSVC driver, MSVC flags), which overlaps
-          # with --config=msvc. A GNU-driver clang would need a custom toolchain.
           - { os: windows-latest, compiler: msvc }
+          # macOS/gcc, Windows/gcc, and Windows/clang are intentionally omitted.
+          # Bazel's autodetected per-OS cc-toolchains don't support them without
+          # significant extra plumbing (custom toolchains, exec platforms, etc.).
+          # Coverage is adequate: gcc runs on Linux, clang on Linux+macOS, MSVC
+          # on Windows.
 
     env:
       CC: ${{ matrix.cc }}
@@ -51,30 +39,10 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.compiler == 'gcc'
         run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14
 
-      # Windows + gcc: install MinGW-w64 via msys2, then tell Bazel to use
-      # its mingw-gcc toolchain (one of the four toolchains registered by
-      # rules_cc's windows_cc_configure, alongside msvc-cl, clang-cl and
-      # msys-gcc). Bazel locates MinGW by walking up from $BAZEL_SH.
-      - name: Set up MinGW-w64 (Windows)
-        id: msys2
-        if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          install: mingw-w64-x86_64-gcc
-          path-type: inherit
-          update: false
-
-      # BAZEL_SH points rules_cc's windows_cc_configure at msys2's MinGW install
-      # when it generates the @local_config_cc repo.
-      - name: Point Bazel at msys2 bash (Windows)
-        if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
-        run: echo "BAZEL_SH=${{ steps.msys2.outputs.msys2-location }}\\usr\\bin\\bash.exe" >> "$GITHUB_ENV"
-
       - uses: bazel-contrib/setup-bazel@0.14.0
         with:
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}-${{ matrix.os }}-${{ matrix.compiler }}
           repository-cache: true
 
-      - run: bazel test --config=ci --config=${{ matrix.compiler }} ${{ matrix.bazel_flags }} //...
+      - run: bazel test --config=ci --config=${{ matrix.compiler }} //...
