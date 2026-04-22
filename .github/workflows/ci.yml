@@ -20,7 +20,10 @@ jobs:
         include:
           - { os: ubuntu-latest,  compiler: gcc,   cc: gcc-14, cxx: g++-14 }
           - { os: ubuntu-latest,  compiler: clang, cc: clang,  cxx: clang++ }
-          - { os: macos-latest,   compiler: gcc,   cc: gcc-14, cxx: g++-14 }
+          # macOS/gcc is intentionally omitted: Bazel's autodetected darwin
+          # cc toolchain passes clang-only link flags (e.g. -fobjc-link-runtime)
+          # that Homebrew GCC rejects. Using GCC on macOS needs a custom
+          # cc_toolchain, which isn't worth the complexity here.
           - { os: macos-latest,   compiler: clang, cc: clang,  cxx: clang++ }
           - { os: windows-latest, compiler: gcc,   cc: gcc,    cxx: g++ }
           - { os: windows-latest, compiler: clang, cc: clang,  cxx: clang++ }
@@ -37,10 +40,6 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.compiler == 'gcc'
         run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14
 
-      - name: Install gcc-14 (macOS)
-        if: matrix.os == 'macos-latest' && matrix.compiler == 'gcc'
-        run: brew install gcc@14
-
       - name: Install MinGW (Windows)
         if: matrix.os == 'windows-latest' && matrix.compiler == 'gcc'
         run: choco install mingw -y --no-progress
@@ -51,10 +50,12 @@ jobs:
           choco install llvm -y --no-progress
           echo "C:\Program Files\LLVM\bin" >> "$GITHUB_PATH"
 
-      # Prevent Bazel's MSVC autodetection from pre-empting the user's choice.
-      - name: Disable MSVC autodetection (Windows, non-MSVC jobs)
+      # Force Unix-style toolchain autodetection (gcc/clang on PATH) instead
+      # of MSVC. Note: setting BAZEL_VC="" crashes rules_cc's windows
+      # configurator (it indexes value[0] without a length check).
+      - name: Use Unix-style toolchain autodetection (Windows, non-MSVC jobs)
         if: matrix.os == 'windows-latest' && matrix.compiler != 'msvc'
-        run: echo "BAZEL_VC=" >> "$GITHUB_ENV"
+        run: echo "BAZEL_USE_CPP_ONLY_TOOLCHAIN=1" >> "$GITHUB_ENV"
 
       - uses: bazel-contrib/setup-bazel@0.14.0
         with:
