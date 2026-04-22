@@ -31,13 +31,13 @@ jobs:
           # significant extra plumbing (custom toolchains, exec platforms, etc.).
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install gcc-14 (Linux)
         if: matrix.os == 'ubuntu-latest' && matrix.compiler == 'gcc'
         run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14
 
-      - uses: bazel-contrib/setup-bazel@0.14.0
+      - uses: bazel-contrib/setup-bazel@0.18.0
         with:
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}-${{ matrix.os }}-${{ matrix.compiler }}
