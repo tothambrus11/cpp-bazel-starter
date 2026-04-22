@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash
@@ -18,19 +22,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest,  compiler: gcc,   cc: gcc-14, cxx: g++-14 }
-          - { os: ubuntu-latest,  compiler: clang, cc: clang,  cxx: clang++ }
-          - { os: macos-latest,   compiler: clang, cc: clang,  cxx: clang++ }
+          - { os: ubuntu-latest, compiler: gcc }
+          - { os: ubuntu-latest, compiler: clang }
+          - { os: macos-latest, compiler: clang }
           - { os: windows-latest, compiler: msvc }
           # macOS/gcc, Windows/gcc, and Windows/clang are intentionally omitted.
           # Bazel's autodetected per-OS cc-toolchains don't support them without
           # significant extra plumbing (custom toolchains, exec platforms, etc.).
-          # Coverage is adequate: gcc runs on Linux, clang on Linux+macOS, MSVC
-          # on Windows.
-
-    env:
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
 
     steps:
       - uses: actions/checkout@v4
